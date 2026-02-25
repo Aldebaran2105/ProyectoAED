@@ -24,11 +24,8 @@
 #include <algorithm>
 #include <vector>
 
-// ============= Constantes del juego =============
 const int TAM_TABLERO = 15;
 const int VEL_JUGADOR = 1;
-// const int VEL_ENEMIGO_ESPECIAL = 1;
-// const int VEL_ENEMIGO_NORMAL = 1;
 const float VEL_ENEMIGO_ESPECIAL = 0.6f;
 const float VEL_ENEMIGO_NORMAL = 0.6f;
 const int MAX_ENEMIGOS = 6;
@@ -160,14 +157,10 @@ public:
     }
 };
 
-// probabilidad de que el enemigo persiga al jugador (definida arriba en constantes)
-
-// ============= Enums =============
 enum Direccion { Arriba, Abajo, Izquierda, Derecha, Ninguna };
 enum TipoCelda { Vacia, Muro, Hielo, Uva, Platano, FrutaNormal, FrutaCongelada };
 enum TipoEnemigo { Normal, Especial };
 
-// ============= Estructuras =============
 struct Posicion {
     float x = 0, y = 0;
     Posicion() = default;
@@ -229,7 +222,6 @@ struct Fruta {
     Fruta(float x, float y, TipoCelda t) : pos(x, y), tipoFruta(t) {}
 };
 
-// ============= Mapa =============
 class Mapa {
     TipoCelda casilla[TAM_TABLERO][TAM_TABLERO];
 public:
@@ -237,7 +229,6 @@ public:
         for (int i = 0; i < TAM_TABLERO; i++)
             for (int j = 0; j < TAM_TABLERO; j++)
                 casilla[i][j] = Vacia;
-        // Bordes
         for (int k = 0; k < TAM_TABLERO; k++) {
             casilla[0][k] = casilla[TAM_TABLERO - 1][k] = Muro;
             casilla[k][0] = casilla[k][TAM_TABLERO - 1] = Muro;
@@ -278,7 +269,6 @@ public:
         TipoCelda t = obtenerCelda(fila, col);
         return (t == Vacia || t == Uva || t == Platano);
     }
-    // Enemigos especiales pueden atravesar hielo y frutas, pero nunca salir del tablero
     bool puedePasarEspecial(int fila, int col) const {
         if (fila < 0 || fila >= TAM_TABLERO || col < 0 || col >= TAM_TABLERO)
             return false;
@@ -313,7 +303,6 @@ public:
     }
 };
 
-// ============= Lógica enemigos (perseguir + aleatorio) =============
 class LogicaEnemigo {
 public:
     static bool hayFrutaCongeladaEn(int fila, int col, const Fruta* frutas, int numFrutas) {
@@ -340,7 +329,6 @@ public:
         } else {
             preferida = (dc > 0) ? Derecha : Izquierda;
         }
-        // Si puede moverse en esa dirección, usarla
         int nr = er, nc = ec;
         switch (preferida) {
             case Arriba: nr--; break;
@@ -354,7 +342,6 @@ public:
             e.dir = preferida;
             return;
         }
-        // Si no, intentar la otra componente
         Direccion otra = (std::abs(dr) >= std::abs(dc)) ? (dc > 0 ? Derecha : Izquierda) : (dr > 0 ? Abajo : Arriba);
         nr = er; nc = ec;
         switch (otra) {
@@ -366,7 +353,6 @@ public:
         }
         puede = puedePasarCelda(nr, nc, e, mapa, frutas, numFrutas);
         if (puede) { e.dir = otra; return; }
-        // Aleatorio
         int d = QRandomGenerator::global()->bounded(4);
         e.dir = static_cast<Direccion>(d);
     }
@@ -400,7 +386,6 @@ public:
     }
 };
 
-// ============= Congelar / Descongelar =============
 class CongelarDescongelar {
 public:
     static void congelar(Jugador& jug, Mapa& mapa, Enemigo* enemigos, int numEnemigos, Fruta* frutas, int numFrutas) {
@@ -450,7 +435,6 @@ public:
     }
 };
 
-// ============= Estado del juego =============
 enum EstadoJuego { Menu, Jugando, Ganaste, Perdiste };
 
 class Juego {
@@ -468,7 +452,6 @@ public:
     int platanosRestantes = 0;
     QuadTree quadTreeEnemigos{0.0, 0.0, static_cast<double>(TAM_TABLERO), static_cast<double>(TAM_TABLERO)};
     int ticksDesdeInicio = 0;
-    // Estado simple para el bot
     Direccion ultimaDirBot = Ninguna;
     int pasosBloqueadoBot = 0;
 
@@ -476,8 +459,6 @@ public:
         if (!esBot || estado != Jugando || !jugador.vivo) return;
 
         Posicion ant = jugador.pos;
-
-        // Si el bot lleva varios ticks bloqueado, ignora la fruta y prueba direcciones libres aleatorias
         if (pasosBloqueadoBot >= 2) {
             int jr = ant.celdaY();
             int jc = ant.celdaX();
@@ -502,8 +483,7 @@ public:
                 ultimaDirBot = d;
                 break;
             }
-        } else {
-            // Buscar la fruta más cercana (no recogida)
+            } else {
             int jr = jugador.pos.celdaY();
             int jc = jugador.pos.celdaX();
             int mejorIdx = -1;
@@ -518,7 +498,7 @@ public:
                     mejorIdx = i;
                 }
             }
-            if (mejorIdx == -1) return; // no hay frutas visibles
+            if (mejorIdx == -1) return;
             int fr = frutas[mejorIdx].pos.celdaY();
             int fc = frutas[mejorIdx].pos.celdaX();
             int dr = fr - jr;
@@ -543,7 +523,6 @@ public:
             ultimaDirBot = jugador.dir;
         }
 
-        // Actualizar contador de bloqueo
         int jr = jugador.pos.celdaY();
         int jc = jugador.pos.celdaX();
         if (jr == ant.celdaY() && jc == ant.celdaX()) {
@@ -565,8 +544,6 @@ public:
         ultimaDirBot = Ninguna;
         mapa.inicializar();
         mapa.ponerMurosAleatorios();
-
-        // Jugador en celda libre (centro o cerca)
         int pr = TAM_TABLERO / 2, pc = TAM_TABLERO / 2;
         if (mapa.obtenerCelda(pr, pc) != Vacia) {
             for (int d = 1; d < TAM_TABLERO/2; d++) {
@@ -577,8 +554,6 @@ public:
             }
         }
         jugador.pos = Posicion(static_cast<float>(pc), static_cast<float>(pr));
-
-        // Enemigos: cantidad = nivel, posiciones aleatorias (priorizando parte superior)
         numEnemigos = std::min(nivel, MAX_ENEMIGOS);
         for (int i = 0; i < numEnemigos; i++) {
             int er, ec;
@@ -655,7 +630,6 @@ public:
             if (!enemigos[i].vivo) continue;
             LogicaEnemigo::actualizar(enemigos[i], jugador, mapa, frutas, numFrutas);
         }
-        // Usar QuadTree para detectar colisión jugador-enemigo (consulta espacial)
         quadTreeEnemigos.limpiar();
         for (int i = 0; i < numEnemigos; i++) {
             if (!enemigos[i].vivo) continue;
@@ -663,7 +637,6 @@ public:
             quadTreeEnemigos.insertar(ex, ey);
         }
         int jx = jugador.pos.celdaX(), jy = jugador.pos.celdaY();
-        // Pequeño delay inicial para evitar muertes instantáneas al spawn
         if (ticksDesdeInicio > 1 &&
             quadTreeEnemigos.hayPuntosEnCelda(static_cast<double>(jx), static_cast<double>(jy))) {
             jugador.vivo = false;
@@ -678,7 +651,6 @@ public:
     void descongelar() { CongelarDescongelar::descongelar(jugador, mapa, enemigos, numEnemigos, frutas, numFrutas); }
 };
 
-// ============= Sprites del personaje (animaciones estilo Bad Ice Cream) =============
 static QString rutaSprites() {
     QDir d(QCoreApplication::applicationDirPath());
     // 1) Junto al .exe (cmake-build-debug/SPRITES)
@@ -712,7 +684,6 @@ public:
             return false;
         }
 
-        // quieto: 0.png, 1.png (cargar con QImage por compatibilidad Windows)
         for (int i = 0; i <= 1; i++) {
             QString ruta = QDir(base).absoluteFilePath("quieto/" + QString::number(i) + ".png");
             QImage img(ruta);
@@ -724,7 +695,6 @@ public:
             quieto.append(QPixmap::fromImage(img));
         }
 
-        // caminar: abajo, arriba, derecha, izquierda -> indices 0,1,2,3
         const char* dirs[] = {"abajo","arriba","derecha","izquierda"};
         caminar.resize(4);
         for (int d = 0; d < 4; d++) {
@@ -737,8 +707,7 @@ public:
             }
         }
 
-        // hacerhielo: abajo/arriba 0-9, derecha/izquierda 0-7
-        const int hacerhieloFrames[] = {10, 10, 8, 8}; // abajo, arriba, derecha, izquierda
+        const int hacerhieloFrames[] = {10, 10, 8, 8};
         hacerhielo.resize(4);
         for (int d = 0; d < 4; d++) {
             QString carpeta = QDir(base).absoluteFilePath(QString("hacerhielo/") + dirs[d]);
@@ -750,7 +719,6 @@ public:
             }
         }
 
-        // romperhielo: 2.png a 9.png
         for (int i = 2; i <= 9; i++) {
             QString ruta = QDir(base).absoluteFilePath("romperhielo/" + QString::number(i) + ".png");
             QImage img(ruta);
@@ -758,7 +726,6 @@ public:
             romperhielo.append(QPixmap::fromImage(img));
         }
 
-        // rip: 0-12
         for (int i = 0; i <= 12; i++) {
             QString ruta = QDir(base).absoluteFilePath("rip/" + QString::number(i) + ".png");
             QImage img(ruta);
@@ -766,7 +733,6 @@ public:
             rip.append(QPixmap::fromImage(img));
         }
 
-        // ganar: 0-5
         for (int i = 0; i <= 5; i++) {
             QString ruta = QDir(base).absoluteFilePath("ganar/" + QString::number(i) + ".png");
             QImage img(ruta);
@@ -814,23 +780,20 @@ public:
     }
 };
 
-// ============= Sprites del enemigo =============
 class AnimacionEnemigo {
 public:
-    QVector<QPixmap> quieto;           // solo 0.png
-    QVector<QVector<QPixmap>> caminar; // [dir][0-7]: abajo=0, arriba=1, derecha=2, izquierda=3
+    QVector<QPixmap> quieto;
+    QVector<QVector<QPixmap>> caminar;
 
     bool cargar(const QString& base) {
         QString carpeta = QDir(base).absoluteFilePath("enemigos");
         if (!QDir(carpeta).exists()) return false;
 
-        // quieto: 0.png
         QString rutaQuieto = QDir(carpeta).absoluteFilePath("quieto/0.png");
         QImage imgQ(rutaQuieto);
         if (imgQ.isNull()) return false;
         quieto.append(QPixmap::fromImage(imgQ));
 
-        // caminar: abajo, arriba, derecha, izquierda
         const char* dirs[] = {"abajo", "arriba", "derecha", "izquierda"};
         caminar.resize(4);
         for (int d = 0; d < 4; d++) {
@@ -870,7 +833,6 @@ public:
     }
 };
 
-// ============= Sprites de bloques (mapa) =============
 class AnimacionBloques {
 public:
     QPixmap hielo, nieve, nieve2, bordes;
@@ -891,10 +853,9 @@ public:
     }
 };
 
-// ============= Sprites de frutas =============
 class AnimacionFruta {
 public:
-    QPixmap sprite; // 0.png
+    QPixmap sprite;
 
     bool cargar(const QString& base) {
         QString ruta = QDir(base).absoluteFilePath("frutas/0.png");
@@ -905,7 +866,6 @@ public:
     }
 };
 
-// ============= Widget del tablero (dibujo bonito) =============
 class WidgetTablero : public QWidget {
     Juego* juego = nullptr;
     QTimer* timer = nullptr;
@@ -951,7 +911,6 @@ public:
     void avanceAnimacion() {
         tickAnim++;
         if (!juego) return;
-        // Sin sprites: en Ganaste/Perdiste mostrar overlay tras ~1.5 seg
         if (!spritesCargados) {
             if (juego->jugador.dir != Ninguna) ultimaDir = juego->jugador.dir;
             if ((juego->estado == Ganaste || juego->estado == Perdiste) && tickAnim > 12) animacionFinTerminada = true;
@@ -1072,7 +1031,6 @@ public:
             }
         }
 
-        // Frutas (sprite o círculos fallback)
         for (int i = 0; i < juego->numFrutas; i++) {
             if (juego->frutas[i].recogida) continue;
             int fc = juego->frutas[i].pos.celdaX(), fr = juego->frutas[i].pos.celdaY();
@@ -1106,14 +1064,12 @@ public:
             }
         }
 
-        // Jugador (solo si Jugando; en Ganaste/Perdiste se dibuja después de enemigos para que quede encima)
         int jx = offsetX + juego->jugador.pos.celdaX() * lado + lado/2;
         int jy = offsetY + juego->jugador.pos.celdaY() * lado + lado/2;
         if ((juego->jugador.vivo || juego->estado == Perdiste) && juego->estado == Jugando) {
             dibujarSpriteJugador(p, jx, jy, lado);
         }
 
-        // Enemigos (sprites o círculos fallback)
         for (int i = 0; i < juego->numEnemigos; i++) {
             if (!juego->enemigos[i].vivo) continue;
             int ex = offsetX + juego->enemigos[i].pos.celdaX() * lado + lado/2;
@@ -1144,12 +1100,10 @@ public:
             }
         }
 
-        // Jugador en Ganaste/Perdiste (después de enemigos para que animación quede encima)
         if (juego->estado == Ganaste || juego->estado == Perdiste) {
             dibujarSpriteJugador(p, jx, jy, lado);
         }
 
-        // Mensajes fin de partida (solo después de que termine la animación)
         if ((juego->estado == Ganaste || juego->estado == Perdiste) && animacionFinTerminada) {
             p.fillRect(0, 0, width(), height(), QColor(0, 0, 0, 180));
             QFont f = font(); f.setPointSize(20); f.setBold(true); p.setFont(f);
@@ -1187,10 +1141,8 @@ public:
     }
 };
 
-// ============= Pantalla de selección de nivel =============
 class PantallaUnoVsUno;
 
-// ============= Pantalla de selección de modo (previa a niveles) =============
 class PantallaModo : public QWidget {
     QStackedWidget* stack = nullptr;
     QWidget* pantallaNiveles = nullptr;
@@ -1317,7 +1269,6 @@ public:
     }
 };
 
-// ============= Pantalla 1 vs 1 (dos mapas) =============
 class PantallaUnoVsUno : public QWidget {
     QStackedWidget* stack = nullptr;
     Juego juego1;
@@ -1342,11 +1293,9 @@ public:
         titulo->setAlignment(Qt::AlignCenter);
         mainL->addWidget(titulo);
 
-        // Contenedor horizontal con dos columnas (izquierda: jugador, derecha: bot)
         QHBoxLayout* filas = new QHBoxLayout();
         filas->setSpacing(12);
 
-        // Columna jugador 1
         QVBoxLayout* col1 = new QVBoxLayout();
         QLabel* l1 = new QLabel("Mapa Jugador 1");
         l1->setAlignment(Qt::AlignCenter);
@@ -1355,7 +1304,6 @@ public:
         tablero1->setMinimumSize(360, 360);
         col1->addWidget(tablero1, 1);
 
-        // Columna bot
         QVBoxLayout* col2 = new QVBoxLayout();
         QLabel* l2 = new QLabel("Mapa Jugador 2 (Bot)");
         l2->setAlignment(Qt::AlignCenter);
@@ -1374,7 +1322,6 @@ public:
         });
         mainL->addWidget(reiniciar, 0, Qt::AlignCenter);
 
-        // Arrancar primera partida por defecto
         iniciarPartida();
     }
 
@@ -1394,7 +1341,6 @@ public:
     }
 };
 
-// ============= Ventana principal =============
 class VentanaPrincipal : public QMainWindow {
     QStackedWidget* stack = nullptr;
     Juego juego;
@@ -1438,9 +1384,6 @@ public:
         topL->addWidget(instrucciones);
         centralL->addLayout(topL);
         centralL->addWidget(stack, 1);
-
-        // No parar el timer al ganar/perder: la animación debe terminar primero,
-        // luego aparece el overlay. El usuario para con "Menú niveles".
     }
 };
 
