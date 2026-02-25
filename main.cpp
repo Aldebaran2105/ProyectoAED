@@ -1,4 +1,3 @@
-
 #include <QApplication>
 #include <QMainWindow>
 #include <QWidget>
@@ -20,6 +19,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFileInfo>
+#include <QDateTime>
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -27,11 +27,13 @@
 // ============= Constantes del juego =============
 const int TAM_TABLERO = 15;
 const int VEL_JUGADOR = 1;
-const int VEL_ENEMIGO_ESPECIAL = 1;
-const int VEL_ENEMIGO_NORMAL = 1;
+// const int VEL_ENEMIGO_ESPECIAL = 1;
+// const int VEL_ENEMIGO_NORMAL = 1;
+const float VEL_ENEMIGO_ESPECIAL = 0.6f;
+const float VEL_ENEMIGO_NORMAL = 0.6f;
 const int MAX_ENEMIGOS = 6;
 const int MAX_FRUTAS = 30;
-const float PROB_PERSECUCION = 0.75f;
+const float PROB_PERSECUCION = 0.8f;
 
 // ============= QuadTree (partición espacial para colisiones) =============
 struct PointQT {
@@ -276,7 +278,13 @@ public:
         TipoCelda t = obtenerCelda(fila, col);
         return (t == Vacia || t == Uva || t == Platano);
     }
-    bool puedePasarEspecial(int, int) const { return true; }
+    // Enemigos especiales pueden atravesar hielo y frutas, pero nunca salir del tablero
+    bool puedePasarEspecial(int fila, int col) const {
+        if (fila < 0 || fila >= TAM_TABLERO || col < 0 || col >= TAM_TABLERO)
+            return false;
+        TipoCelda t = casilla[fila][col];
+        return (t == Vacia || t == Uva || t == Platano || t == Hielo);
+    }
 
     bool celdaVaciaParaSpawn(int fila, int col) const {
         return obtenerCelda(fila, col) == Vacia;
@@ -450,6 +458,7 @@ public:
     EstadoJuego estado = Menu;
     int nivel = 1;
     Jugador jugador;
+    bool esBot = false;
     Mapa mapa;
     Enemigo enemigos[MAX_ENEMIGOS];
     int numEnemigos = 0;
@@ -458,6 +467,92 @@ public:
     int uvasRestantes = 0;
     int platanosRestantes = 0;
     QuadTree quadTreeEnemigos{0.0, 0.0, static_cast<double>(TAM_TABLERO), static_cast<double>(TAM_TABLERO)};
+    int ticksDesdeInicio = 0;
+    // Estado simple para el bot
+    Direccion ultimaDirBot = Ninguna;
+    int pasosBloqueadoBot = 0;
+
+    void tickBot() {
+        if (!esBot || estado != Jugando || !jugador.vivo) return;
+
+        Posicion ant = jugador.pos;
+
+        // Si el bot lleva varios ticks bloqueado, ignora la fruta y prueba direcciones libres aleatorias
+        if (pasosBloqueadoBot >= 2) {
+            int jr = ant.celdaY();
+            int jc = ant.celdaX();
+            Direccion dirs[4] = {Arriba, Abajo, Izquierda, Derecha};
+            for (int k = 0; k < 4; ++k) {
+                int r = QRandomGenerator::global()->bounded(4);
+                std::swap(dirs[k], dirs[r]);
+            }
+            for (Direccion d : dirs) {
+                int nr = jr, nc = jc;
+                switch (d) {
+                    case Arriba:    nr--; break;
+                    case Abajo:     nr++; break;
+                    case Izquierda: nc--; break;
+                    case Derecha:   nc++; break;
+                    default: break;
+                }
+                if (nr < 0 || nr >= TAM_TABLERO || nc < 0 || nc >= TAM_TABLERO) continue;
+                if (!mapa.sePuedePasar(nr, nc)) continue;
+                if (hayFrutaCongeladaEn(nr, nc)) continue;
+                moverJugador(d);
+                ultimaDirBot = d;
+                break;
+            }
+        } else {
+            // Buscar la fruta más cercana (no recogida)
+            int jr = jugador.pos.celdaY();
+            int jc = jugador.pos.celdaX();
+            int mejorIdx = -1;
+            int mejorDist = 1e9;
+            for (int i = 0; i < numFrutas; i++) {
+                if (frutas[i].recogida) continue;
+                int fr = frutas[i].pos.celdaY();
+                int fc = frutas[i].pos.celdaX();
+                int dist = std::abs(fr - jr) + std::abs(fc - jc);
+                if (dist < mejorDist) {
+                    mejorDist = dist;
+                    mejorIdx = i;
+                }
+            }
+            if (mejorIdx == -1) return; // no hay frutas visibles
+            int fr = frutas[mejorIdx].pos.celdaY();
+            int fc = frutas[mejorIdx].pos.celdaX();
+            int dr = fr - jr;
+            int dc = fc - jc;
+            Direccion d1 = Ninguna, d2 = Ninguna;
+            if (std::abs(dr) >= std::abs(dc)) {
+                d1 = (dr > 0) ? Abajo : Arriba;
+                if (dc != 0) d2 = (dc > 0) ? Derecha : Izquierda;
+            } else {
+                d1 = (dc > 0) ? Derecha : Izquierda;
+                if (dr != 0) d2 = (dr > 0) ? Abajo : Arriba;
+            }
+
+            if (d1 != Ninguna) {
+                moverJugador(d1);
+                if (jugador.pos.celdaX() == ant.celdaX() && jugador.pos.celdaY() == ant.celdaY() && d2 != Ninguna) {
+                    moverJugador(d2);
+                }
+            } else if (d2 != Ninguna) {
+                moverJugador(d2);
+            }
+            ultimaDirBot = jugador.dir;
+        }
+
+        // Actualizar contador de bloqueo
+        int jr = jugador.pos.celdaY();
+        int jc = jugador.pos.celdaX();
+        if (jr == ant.celdaY() && jc == ant.celdaX()) {
+            pasosBloqueadoBot++;
+            if (pasosBloqueadoBot > 6) pasosBloqueadoBot = 6;
+        } else {
+            pasosBloqueadoBot = 0;
+        }
+    }
 
     void iniciarNivel(int n) {
         nivel = n;
@@ -465,6 +560,9 @@ public:
         jugador.vivo = true;
         jugador.dir = Ninguna;
         jugador.frutas_recogidas = 0;
+        ticksDesdeInicio = 0;
+        pasosBloqueadoBot = 0;
+        ultimaDirBot = Ninguna;
         mapa.inicializar();
         mapa.ponerMurosAleatorios();
 
@@ -480,18 +578,19 @@ public:
         }
         jugador.pos = Posicion(static_cast<float>(pc), static_cast<float>(pr));
 
-        // Enemigos: cantidad = nivel, posiciones aleatorias
+        // Enemigos: cantidad = nivel, posiciones aleatorias (priorizando parte superior)
         numEnemigos = std::min(nivel, MAX_ENEMIGOS);
         for (int i = 0; i < numEnemigos; i++) {
             int er, ec;
             int intentos = 0;
             do {
-                er = 1 + QRandomGenerator::global()->bounded(TAM_TABLERO - 2);
+                // filas altas del mapa (1..3) para evitar spawnear junto al jugador central
+                er = 1 + QRandomGenerator::global()->bounded(std::min(3, TAM_TABLERO - 2));
                 ec = 1 + QRandomGenerator::global()->bounded(TAM_TABLERO - 2);
                 if (++intentos > 200) break;
             } while (!mapa.celdaVaciaParaSpawn(er, ec) ||
-                     (er == pr && ec == pc) ||
-                     ocupadoPorOtroEnemigo(ec, er, i));
+                     ocupadoPorOtroEnemigo(ec, er, i) ||
+                     (std::abs(er - pr) + std::abs(ec - pc) <= 2));
             enemigos[i] = Enemigo(static_cast<float>(ec), static_cast<float>(er), (i == numEnemigos - 1 && nivel >= 3) ? Especial : Normal);
             enemigos[i].ticksParaCambiar = QRandomGenerator::global()->bounded(10);
         }
@@ -550,6 +649,8 @@ public:
 
     void actualizar() {
         if (estado != Jugando) return;
+        ticksDesdeInicio++;
+        if (esBot) tickBot();
         for (int i = 0; i < numEnemigos; i++) {
             if (!enemigos[i].vivo) continue;
             LogicaEnemigo::actualizar(enemigos[i], jugador, mapa, frutas, numFrutas);
@@ -562,7 +663,9 @@ public:
             quadTreeEnemigos.insertar(ex, ey);
         }
         int jx = jugador.pos.celdaX(), jy = jugador.pos.celdaY();
-        if (quadTreeEnemigos.hayPuntosEnCelda(static_cast<double>(jx), static_cast<double>(jy))) {
+        // Pequeño delay inicial para evitar muertes instantáneas al spawn
+        if (ticksDesdeInicio > 1 &&
+            quadTreeEnemigos.hayPuntosEnCelda(static_cast<double>(jx), static_cast<double>(jy))) {
             jugador.vivo = false;
             estado = Perdiste;
             return;
@@ -588,6 +691,7 @@ static QString rutaSprites() {
     }
     return r1;
 }
+
 
 class AnimacionJugador {
 public:
@@ -885,7 +989,7 @@ public:
         if (tickAnim % 2 == 0) frameAnim = (frameAnim + 1) % mx;
     }
 
-    void iniciarLoop() { timer->start(120); }
+    void iniciarLoop() { timer->start(200); }
     void pararLoop() { timer->stop(); }
 
     void dibujarSpriteJugador(QPainter& p, int jx, int jy, int lado) {
@@ -1084,6 +1188,66 @@ public:
 };
 
 // ============= Pantalla de selección de nivel =============
+class PantallaUnoVsUno;
+
+// ============= Pantalla de selección de modo (previa a niveles) =============
+class PantallaModo : public QWidget {
+    QStackedWidget* stack = nullptr;
+    QWidget* pantallaNiveles = nullptr;
+    QWidget* pantalla1v1 = nullptr;
+
+public:
+    explicit PantallaModo(QStackedWidget* s, QWidget* niveles, QWidget* unoVsUno, QWidget* parent = nullptr)
+        : QWidget(parent), stack(s), pantallaNiveles(niveles), pantalla1v1(unoVsUno) {
+        setStyleSheet(
+            "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+            "  stop:0 #120b24, stop:0.5 #241a45, stop:1 #120b24);"
+            "QLabel { color: #fdf7ff; }"
+            "QPushButton {"
+            "  background-color: #ff66aa;"
+            "  color: #2b0618;"
+            "  border: 3px solid #ffe6ff;"
+            "  border-radius: 12px;"
+            "  padding: 12px 18px;"
+            "  font-weight: bold;"
+            "  font-size: 18px;"
+            "}"
+            "QPushButton:hover { background-color: #ff88c2; border-color: #ffffff; }"
+            "QPushButton:pressed { background-color: #ff4d99; }"
+        );
+        QVBoxLayout* mainL = new QVBoxLayout(this);
+        mainL->setSpacing(24);
+
+        QLabel* titulo = new QLabel("Selecciona modo de juego");
+        QFont ft = titulo->font();
+        ft.setPointSize(22);
+        ft.setBold(true);
+        titulo->setFont(ft);
+        titulo->setAlignment(Qt::AlignCenter);
+        mainL->addWidget(titulo);
+
+        QLabel* sub = new QLabel("Elige jugar niveles normales\no un duelo 1 vs 1 contra el bot.");
+        sub->setAlignment(Qt::AlignCenter);
+        mainL->addWidget(sub);
+
+        QPushButton* btnNiveles = new QPushButton("Niveles");
+        QPushButton* btn1v1 = new QPushButton("1 vs 1");
+        btnNiveles->setMinimumHeight(56);
+        btn1v1->setMinimumHeight(56);
+
+        connect(btnNiveles, &QPushButton::clicked, this, [this]() {
+            if (stack && pantallaNiveles) stack->setCurrentWidget(pantallaNiveles);
+        });
+        connect(btn1v1, &QPushButton::clicked, this, [this]() {
+            if (stack && pantalla1v1) stack->setCurrentWidget(pantalla1v1);
+        });
+
+        mainL->addWidget(btnNiveles);
+        mainL->addWidget(btn1v1);
+        mainL->addStretch();
+    }
+};
+
 class PantallaNiveles : public QWidget {
     QVBoxLayout* layout = nullptr;
     QLabel* titulo = nullptr;
@@ -1096,12 +1260,28 @@ public:
     explicit PantallaNiveles(QStackedWidget* s, Juego* j, WidgetTablero* tb, QWidget* parent = nullptr)
         : QWidget(parent), stack(s), juego(j), tablero(tb) {
         setStyleSheet(
-            "background-color: #2a2635;"
-            "QLabel { color: #e8e4e0; }"
-            "QPushButton { background-color: #4a4560; color: #fff; border: 2px solid #6a6580; "
-            "border-radius: 8px; padding: 12px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #5a5570; border-color: #8a85a0; }"
-            "QPushButton:pressed { background-color: #3a3550; }"
+            "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+            "  stop:0 #1b1030, stop:0.5 #241a45, stop:1 #1b1030);"
+            "QLabel { color: #fdf7ff; }"
+            "QLabel#Subtitulo { color: #ffe8a8; font-size: 14px; }"
+            "QPushButton {"
+            "  background-color: #ffcc33;"
+            "  color: #3b1a0a;"
+            "  border: 3px solid #ffef99;"
+            "  border-radius: 10px;"
+            "  padding: 10px 14px;"
+            "  font-weight: bold;"
+            "  font-size: 18px;"
+            "  text-shadow: 1px 1px 0px rgba(255,255,255,0.6);"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #ffe066;"
+            "  border-color: #ffffff;"
+            "}"
+            "QPushButton:pressed {"
+            "  background-color: #ffb833;"
+            "  border-color: #f0d070;"
+            "}"
         );
         QVBoxLayout* mainL = new QVBoxLayout(this);
         mainL->setSpacing(28);
@@ -1111,9 +1291,9 @@ public:
         f.setPointSize(24);
         titulo->setFont(f);
         mainL->addWidget(titulo);
-        QLabel* sub = new QLabel("Más nivel = más enemigos. Recoge todas las uvas.");
+        QLabel* sub = new QLabel("Más nivel = más enemigos.\nRecoge todas las frutas sin que te atrapen.");
+        sub->setObjectName("Subtitulo");
         sub->setAlignment(Qt::AlignCenter);
-        sub->setStyleSheet("color: #a0a0b0;");
         mainL->addWidget(sub);
         contenedorBotones = new QWidget;
         QHBoxLayout* botonesL = new QHBoxLayout(contenedorBotones);
@@ -1126,7 +1306,8 @@ public:
             connect(btn, &QPushButton::clicked, this, [this, nivel]() {
                 juego->iniciarNivel(nivel);
                 tablero->iniciarLoop();
-                if (stack->count() > 1) stack->setCurrentIndex(1);
+                // 0: Modo | 1: Menú niveles | 2: Juego | 3: 1vs1
+                if (stack->count() > 2) stack->setCurrentIndex(2);
                 tablero->setFocus();
             });
             botonesL->addWidget(btn);
@@ -1136,17 +1317,97 @@ public:
     }
 };
 
+// ============= Pantalla 1 vs 1 (dos mapas) =============
+class PantallaUnoVsUno : public QWidget {
+    QStackedWidget* stack = nullptr;
+    Juego juego1;
+    Juego juegoBot;
+    WidgetTablero* tablero1 = nullptr;
+    WidgetTablero* tableroBot = nullptr;
+
+public:
+    explicit PantallaUnoVsUno(QStackedWidget* s, QWidget* parent = nullptr)
+        : QWidget(parent), stack(s) {
+        juego1.esBot = false;
+        juegoBot.esBot = true;
+
+        QVBoxLayout* mainL = new QVBoxLayout(this);
+        mainL->setSpacing(8);
+
+        QLabel* titulo = new QLabel("Modo 1 vs 1");
+        QFont ft = titulo->font();
+        ft.setPointSize(20);
+        ft.setBold(true);
+        titulo->setFont(ft);
+        titulo->setAlignment(Qt::AlignCenter);
+        mainL->addWidget(titulo);
+
+        // Contenedor horizontal con dos columnas (izquierda: jugador, derecha: bot)
+        QHBoxLayout* filas = new QHBoxLayout();
+        filas->setSpacing(12);
+
+        // Columna jugador 1
+        QVBoxLayout* col1 = new QVBoxLayout();
+        QLabel* l1 = new QLabel("Mapa Jugador 1");
+        l1->setAlignment(Qt::AlignCenter);
+        col1->addWidget(l1);
+        tablero1 = new WidgetTablero(&juego1, this);
+        tablero1->setMinimumSize(360, 360);
+        col1->addWidget(tablero1, 1);
+
+        // Columna bot
+        QVBoxLayout* col2 = new QVBoxLayout();
+        QLabel* l2 = new QLabel("Mapa Jugador 2 (Bot)");
+        l2->setAlignment(Qt::AlignCenter);
+        col2->addWidget(l2);
+        tableroBot = new WidgetTablero(&juegoBot, this);
+        tableroBot->setMinimumSize(360, 360);
+        col2->addWidget(tableroBot, 1);
+
+        filas->addLayout(col1, 1);
+        filas->addLayout(col2, 1);
+        mainL->addLayout(filas, 1);
+
+        QPushButton* reiniciar = new QPushButton("Reiniciar duelo (nivel 5)");
+        connect(reiniciar, &QPushButton::clicked, this, [this]() {
+            iniciarPartida();
+        });
+        mainL->addWidget(reiniciar, 0, Qt::AlignCenter);
+
+        // Arrancar primera partida por defecto
+        iniciarPartida();
+    }
+
+    void iniciarPartida() {
+        juego1.esBot = false;
+        juegoBot.esBot = true;
+        juego1.iniciarNivel(5);
+        juegoBot.iniciarNivel(5);
+        if (tablero1) tablero1->iniciarLoop();
+        if (tableroBot) tableroBot->iniciarLoop();
+        if (tablero1) tablero1->setFocus();
+    }
+
+    void detener() {
+        if (tablero1) tablero1->pararLoop();
+        if (tableroBot) tableroBot->pararLoop();
+    }
+};
+
 // ============= Ventana principal =============
 class VentanaPrincipal : public QMainWindow {
     QStackedWidget* stack = nullptr;
     Juego juego;
     WidgetTablero* tablero = nullptr;
+    PantallaNiveles* pantallaNiveles = nullptr;
+    PantallaUnoVsUno* pantalla1v1 = nullptr;
+    PantallaModo* pantallaModo = nullptr;
 
 public:
     VentanaPrincipal() : QMainWindow(nullptr) {
         setWindowTitle("Proyecto Ice Cream - Qt6");
-        setMinimumSize(550, 520);
-        resize(550, 520);
+        setMinimumSize(900, 520);
+        resize(900, 520);
 
         QWidget* central = new QWidget(this);
         QVBoxLayout* centralL = new QVBoxLayout(central);
@@ -1155,14 +1416,21 @@ public:
         stack = new QStackedWidget(this);
         tablero = new WidgetTablero(&juego, this);
         tablero->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        stack->addWidget(new PantallaNiveles(stack, &juego, tablero, this));
+        pantallaNiveles = new PantallaNiveles(stack, &juego, tablero, this);
+        pantalla1v1 = new PantallaUnoVsUno(stack, this);
+        pantallaModo = new PantallaModo(stack, pantallaNiveles, pantalla1v1, this);
+        // 0: Modo | 1: Menú niveles | 2: Juego | 3: 1vs1
+        stack->addWidget(pantallaModo);
+        stack->addWidget(pantallaNiveles);
         stack->addWidget(tablero);
+        stack->addWidget(pantalla1v1);
 
         QHBoxLayout* topL = new QHBoxLayout();
-        QPushButton* volver = new QPushButton("Menú niveles");
+        QPushButton* volver = new QPushButton("Menú principal");
         connect(volver, &QPushButton::clicked, this, [this]() {
             tablero->pararLoop();
-            stack->setCurrentIndex(0);
+            if (pantalla1v1) pantalla1v1->detener();
+            if (stack && pantallaModo) stack->setCurrentWidget(pantallaModo);
         });
         topL->addWidget(volver);
         topL->addStretch();
