@@ -1,0 +1,5 @@
+C:/Users/ASUS/Desktop/Mario Urpay/CICLO 2026-0/PROYECTO/cmake-build-debug/CMakeFiles/PROYECTO.dir
+C:/Users/ASUS/Desktop/Mario Urpay/CICLO 2026-0/PROYECTO/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/Users/ASUS/Desktop/Mario Urpay/CICLO 2026-0/PROYECTO/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+C:/Users/ASUS/Desktop/Mario Urpay/CICLO 2026-0/PROYECTO/cmake-build-debug/CMakeFiles/PROYECTO_autogen_timestamp_deps.dir
+C:/Users/ASUS/Desktop/Mario Urpay/CICLO 2026-0/PROYECTO/cmake-build-debug/CMakeFiles/PROYECTO_autogen.dir
